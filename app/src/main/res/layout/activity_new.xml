@@ -24,6 +24,32 @@
 
 
 
+    <!-- 질문 텍스트 표시 -->
+    <TextView
+        android:id="@+id/ask_tv"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:layout_marginHorizontal="20dp"
+        android:text="질문이 여기에 표시됩니다"
+        android:textColor="@android:color/white"
+        android:textSize="16sp"
+        android:gravity="center"
+        android:padding="10dp" />
+
+    <!-- 답변 텍스트 표시 -->
+    <TextView
+        android:id="@+id/answer_tv"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:layout_marginHorizontal="20dp"
+        android:text="답변이 여기에 표시됩니다"
+        android:textColor="@android:color/white"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:padding="10dp" />
+
     <Button
         android:id="@+id/btn_clear_and_reset"
         android:layout_width="200dp"
@@ -34,7 +60,40 @@
         android:text="clear and reset"
         android:textSize="10sp"/>
 
+    <!-- 텍스트 전송 버튼 -->
+    <Button
+        android:id="@+id/btnSendText"
+        android:layout_width="200dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:background="#4CAF50"
+        android:text="Send Text"
+        android:textColor="@android:color/white"
+        android:textSize="12sp"/>
 
+    <!-- WebSocket 중지 버튼 -->
+    <Button
+        android:id="@+id/stopws"
+        android:layout_width="200dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:background="#F44336"
+        android:text="Stop WebSocket"
+        android:textColor="@android:color/white"
+        android:textSize="12sp"/>
 
+    <!-- 내 음성 재생 버튼 -->
+    <Button
+        android:id="@+id/playmys"
+        android:layout_width="200dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:background="#FF9800"
+        android:text="Play My Voice"
+        android:textColor="@android:color/white"
+        android:textSize="12sp"/>
 
 </LinearLayout>
