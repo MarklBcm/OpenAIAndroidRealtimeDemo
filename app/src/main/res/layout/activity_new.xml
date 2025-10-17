@@ -9,9 +9,9 @@
     <com.navbot.aihelper.CircleWaveView
         android:id="@+id/circle_wave_view"
         android:layout_width="match_parent"
-        android:layout_height="400dp"
+        android:layout_height="320dp"
         android:layout_gravity="center"
-        android:layout_marginTop="200dp" />
+        android:layout_marginTop="60dp" />
 
     <ImageView
         android:id="@+id/iv_close"
@@ -20,9 +20,6 @@
         android:layout_gravity="center_horizontal"
         android:src="@drawable/ic_close"
         android:visibility="gone" />
-
-
-
 
     <!-- 질문 텍스트 표시 -->
     <TextView
@@ -91,6 +88,7 @@
         android:layout_height="40dp"
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="10dp"
+        android:layout_marginBottom="20dp"
         android:background="#FF9800"
         android:text="Play My Voice"
         android:textColor="@android:color/white"

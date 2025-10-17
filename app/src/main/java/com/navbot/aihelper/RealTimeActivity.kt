@@ -16,10 +16,16 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.util.Log
+import android.view.View
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import com.blankj.utilcode.util.ToastUtils
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -60,6 +66,22 @@ class RealTimeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_new)
+
+        enableEdgeToEdge()
+
+        // WindowInsets 처리 - 하단 네비게이션 바 겹침 방지
+        val rootView = findViewById<View>(android.R.id.content)
+        ViewCompat.setOnApplyWindowInsetsListener(rootView) { view, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.updatePadding(
+                left = insets.left,
+                top = insets.top,
+                right = insets.right,
+                bottom = insets.bottom
+            )
+            windowInsets
+        }
+
         waveView = findViewById(R.id.circle_wave_view)
         findViewById<Button>(R.id.btn_clear_and_reset).setOnClickListener {
             sendSessionUpdate()
