@@ -48,6 +48,12 @@ class RealTimeActivity : ComponentActivity() {
     private lateinit var webSocket: okhttp3.WebSocket
     private var isRecording = false
     private var audioRecord: AudioRecord? = null
+    private var audioSessionId: Int = 0  // AudioRecord와 AudioTrack이 공유할 sessionId
+    
+    // 에코 캔슬레이션 및 노이즈 억제 객체
+    private var acousticEchoCanceler: AcousticEchoCanceler? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
+    private var automaticGainControl: AutomaticGainControl? = null
 
     private var audioTrack: AudioTrack? = null
     private val permissions = arrayOf(Manifest.permission.RECORD_AUDIO)
@@ -120,21 +126,37 @@ class RealTimeActivity : ComponentActivity() {
      * Sets up the authorization headers and handles WebSocket events such as connection and message reception.
      */
     private fun initWebSocket() {
-        val client = okhttp3.OkHttpClient()
-        val request = okhttp3.Request.Builder()
-            .url(Config.WSURL)
-            .addHeader("Authorization", "Bearer ${Config.OPENAI_API_KEY}")
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url(BuildConfig.WSURL)
+            .addHeader("Authorization", "Bearer ${BuildConfig.OPENAI_API_KEY}")
             .addHeader("OpenAI-Beta", "realtime=v1")
             .build()
 
         webSocket = client.newWebSocket(request, object : okhttp3.WebSocketListener() {
             override fun onOpen(webSocket: okhttp3.WebSocket, response: okhttp3.Response) {
                 Log.d(TAG, "WebSocket connection opened")
-
+                runOnUiThread {
+                    ToastUtils.showShort("WebSocket 연결 성공!")
+                }
             }
 
             override fun onMessage(webSocket: okhttp3.WebSocket, text: String) {
                 handleWebSocketMessage(text)
+            }
+
+            override fun onFailure(webSocket: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) {
+                Log.e(TAG, "WebSocket connection failed: ${t.message}", t)
+                runOnUiThread {
+                    ToastUtils.showShort("WebSocket 연결 실패: ${t.message}")
+                }
+            }
+
+            override fun onClosed(webSocket: okhttp3.WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "WebSocket connection closed: $code - $reason")
+                runOnUiThread {
+                    ToastUtils.showShort("WebSocket 연결 종료")
+                }
             }
         })
     }
@@ -375,7 +397,7 @@ class RealTimeActivity : ComponentActivity() {
 
         Log.d(TAG, "Starting audio recording")
         audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,  //  VOICE_COMMUNICATION
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,  // 에코 캔슬레이션을 위한 최적 소스
             sampleRate,
             channelConfig,
             audioFormat,
@@ -383,7 +405,15 @@ class RealTimeActivity : ComponentActivity() {
         ).apply {
             startRecording()
         }
+        
+        // AudioRecord의 sessionId 저장 (AudioTrack과 공유하기 위해)
+        audioSessionId = audioRecord?.audioSessionId ?: 0
+        Log.d(TAG, "Audio session ID: $audioSessionId")
+        
         isRecording = true
+        
+        // 에코 캔슬레이션 활성화
+        setupAudioEffects()
 
         // test code
         tempAudioFilePath = "${externalCacheDir?.absolutePath}/temp_audio.pcm"
@@ -406,6 +436,7 @@ class RealTimeActivity : ComponentActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error during audio recording: ${e.message}", e)
             } finally {
+                releaseAudioEffects()  // 오디오 이펙트 먼저 해제
                 audioRecord?.release()
                 audioFileOutputStream?.close()
                 Log.i(TAG, "Audio recording stopped")
@@ -428,6 +459,56 @@ class RealTimeActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 에코 캔슬레이션, 노이즈 억제, 자동 게인 컨트롤 설정
+     * 스피커에서 나오는 AI 음성이 마이크로 다시 들어가는 것을 방지
+     */
+    private fun setupAudioEffects() {
+        audioRecord?.audioSessionId?.let { sessionId ->
+            // 에코 캔슬레이션 (AEC)
+            if (AcousticEchoCanceler.isAvailable()) {
+                acousticEchoCanceler = AcousticEchoCanceler.create(sessionId)
+                acousticEchoCanceler?.enabled = true
+                Log.d(TAG, "AcousticEchoCanceler enabled: ${acousticEchoCanceler?.enabled}")
+            } else {
+                Log.w(TAG, "AcousticEchoCanceler is not available on this device")
+            }
+            
+            // 노이즈 억제 (NS)
+            if (NoiseSuppressor.isAvailable()) {
+                noiseSuppressor = NoiseSuppressor.create(sessionId)
+                noiseSuppressor?.enabled = true
+                Log.d(TAG, "NoiseSuppressor enabled: ${noiseSuppressor?.enabled}")
+            } else {
+                Log.w(TAG, "NoiseSuppressor is not available on this device")
+            }
+            
+            // 자동 게인 컨트롤 (AGC)
+            if (AutomaticGainControl.isAvailable()) {
+                automaticGainControl = AutomaticGainControl.create(sessionId)
+                automaticGainControl?.enabled = true
+                Log.d(TAG, "AutomaticGainControl enabled: ${automaticGainControl?.enabled}")
+            } else {
+                Log.w(TAG, "AutomaticGainControl is not available on this device")
+            }
+        }
+    }
+    
+    /**
+     * 오디오 이펙트 해제
+     */
+    private fun releaseAudioEffects() {
+        acousticEchoCanceler?.release()
+        acousticEchoCanceler = null
+        
+        noiseSuppressor?.release()
+        noiseSuppressor = null
+        
+        automaticGainControl?.release()
+        automaticGainControl = null
+        
+        Log.d(TAG, "Audio effects released")
+    }
 
     /**
      * Clears the audio queue that holds incoming audio data.
@@ -471,8 +552,9 @@ class RealTimeActivity : ComponentActivity() {
      */
     private fun playAudio(audioData: ByteArray) {
         if (audioTrack == null) {
+            // AudioRecord와 같은 audioSessionId를 사용하여 에코 캔슬레이션 활성화
             audioTrack = AudioTrack(
-                AudioManager.STREAM_MUSIC,
+                AudioManager.STREAM_VOICE_CALL,  // 음성 통화용 스트림으로 에코 제거 최적화
                 24000,
                 AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
@@ -481,11 +563,12 @@ class RealTimeActivity : ComponentActivity() {
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT
                 ),
-                AudioTrack.MODE_STREAM
+                AudioTrack.MODE_STREAM,
+                audioSessionId  // AudioRecord와 같은 sessionId 사용 (핵심!)
             ).apply {
                 play()
             }
-            Log.d(TAG, "Audio track initialized and started")
+            Log.d(TAG, "AudioTrack initialized with session ID: $audioSessionId")
         }
         try {
             audioTrack?.write(audioData, 0, audioData.size)
@@ -629,6 +712,7 @@ class RealTimeActivity : ComponentActivity() {
             // 停止录音
             if (isRecording && audioRecord != null) {
                 isRecording = false
+                releaseAudioEffects()  // 오디오 이펙트 해제
                 audioRecord?.stop()  // 停止录音
                 audioRecord?.release()  // 释放录音资源
                 audioRecord = null
@@ -657,9 +741,9 @@ class RealTimeActivity : ComponentActivity() {
                 val fileInputStream = FileInputStream(audioFile)
                 val buffer = ByteArray(1024)
 
-                // 初始化AudioTrack来播放保存的音频文件
+                // 初始化AudioTrack来播放保存的音频文件 (같은 audioSessionId 사용)
                 audioTrack = AudioTrack(
-                    AudioManager.STREAM_MUSIC,
+                    AudioManager.STREAM_VOICE_CALL,
                     16000,  // 确保采样率和录制时相同
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
@@ -668,7 +752,8 @@ class RealTimeActivity : ComponentActivity() {
                         AudioFormat.CHANNEL_OUT_MONO,
                         AudioFormat.ENCODING_PCM_16BIT
                     ),
-                    AudioTrack.MODE_STREAM
+                    AudioTrack.MODE_STREAM,
+                    audioSessionId  // AudioRecord와 같은 sessionId 사용
                 )
                 audioTrack?.play()
 

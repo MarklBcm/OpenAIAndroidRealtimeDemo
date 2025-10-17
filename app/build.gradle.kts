@@ -22,6 +22,13 @@ android {
             useSupportLibrary = true
         }
 
+        val localProperties = Properties().apply {
+            load(FileInputStream(rootProject.file("local.properties")))
+        }
+
+        buildConfigField("String", "OPENAI_API_KEY", "\"${localProperties["OPENAI_API_KEY"]}\"")
+        buildConfigField("String", "WSURL", "\"${localProperties["WSURL"]}\"")
+
     }
     signingConfigs {
 
@@ -69,6 +76,7 @@ android {
         jvmTarget = "1.8"
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
     composeOptions {
