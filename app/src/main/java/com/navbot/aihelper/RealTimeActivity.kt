@@ -11,6 +11,8 @@ import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
+import android.media.AudioDeviceInfo
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -86,8 +88,9 @@ class RealTimeActivity : ComponentActivity() {
         // AudioManager 초기화 및 통화 모드 설정 (에코 캔슬레이션 활성화)
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
-        audioManager?.isSpeakerphoneOn = true  // 스피커폰 활성화
-        Log.d(TAG, "AudioManager configured: mode=IN_COMMUNICATION, speakerphone=ON")
+        // 기본 출력은 스피커로 고정 (S+에선 통신 디바이스로 지정)
+        setOutputRoute(true)
+        Log.d(TAG, "AudioManager configured: mode=IN_COMMUNICATION, route=Speaker")
 
         waveView = binding.circleWaveView
         binding.btnClearAndReset.setOnClickListener {
@@ -114,9 +117,34 @@ class RealTimeActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         // AudioManager 설정 복원
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager?.clearCommunicationDevice()
+        } else {
+            @Suppress("DEPRECATION")
+            run { audioManager?.isSpeakerphoneOn = false }
+        }
         audioManager?.mode = AudioManager.MODE_NORMAL
-        audioManager?.isSpeakerphoneOn = false
         Log.d(TAG, "AudioManager restored to normal mode")
+    }
+
+    /**
+     * 스피커(내장) & 핸드셋(이어피스) 간 출력 라우팅 전환
+     * - Android 12(API 31)+ : setCommunicationDevice() 사용
+     * - 이하 버전 : isSpeakerphoneOn 플래그 사용
+     */
+    private fun setOutputRoute(toSpeaker: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val targetType = if (toSpeaker) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+            val dev = audioManager?.availableCommunicationDevices?.firstOrNull { it.type == targetType }
+            val ok = if (dev != null) audioManager?.setCommunicationDevice(dev) == true else false
+            Log.d(TAG, "setCommunicationDevice(${if (toSpeaker) "SPEAKER" else "EARPIECE"}) -> $ok")
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                audioManager?.isSpeakerphoneOn = toSpeaker
+                Log.d(TAG, "isSpeakerphoneOn = $toSpeaker (legacy)")
+            }
+        }
     }
 
     /**
@@ -124,15 +152,15 @@ class RealTimeActivity : ComponentActivity() {
      */
     private fun toggleSpeaker() {
         isSpeakerOn = !isSpeakerOn
-        audioManager?.isSpeakerphoneOn = isSpeakerOn
+        setOutputRoute(isSpeakerOn)
 
-        // 기존 AudioTrack 재생성 (스피커 설정이 즉시 적용되도록)
-        if (audioTrack != null && isPlayingAudio) {
-            audioTrack?.stop()
-            audioTrack?.release()
-            audioTrack = null
-            Log.d(TAG, "AudioTrack released for speaker change")
-        }
+        // 라우팅 변경이 즉시 반영되도록 재생 중 여부와 무관하게 트랙 재생성
+        audioTrack?.stop()
+        audioTrack?.flush()
+        audioTrack?.release()
+        audioTrack = null
+        isPlayingAudio = false
+        Log.d(TAG, "AudioTrack released for route change")
 
         // 버튼 UI 업데이트
         if (isSpeakerOn) {
@@ -711,10 +739,19 @@ class RealTimeActivity : ComponentActivity() {
                 .setSessionId(audioSessionId)  // AudioRecord와 같은 sessionId (핵심!)
                 .build()
 
+            // M(API 23)+ 에서 preferredDevice 힌트 제공 (S 미만)
+            if (Build.VERSION.SDK_INT in Build.VERSION_CODES.M until Build.VERSION_CODES.S) {
+                val outputs = (getSystemService(AUDIO_SERVICE) as AudioManager)
+                    .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                val targetType = if (isSpeakerOn) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                val hint = outputs.firstOrNull { it.type == targetType }
+                hint?.let { audioTrack?.preferredDevice = it }
+            }
+
             audioTrack?.play()
 
             Log.d(TAG, "AudioTrack created with VOICE_COMMUNICATION usage, session: $audioSessionId")
-            Log.d(TAG, "Speaker mode: $isSpeakerOn")
+            Log.d(TAG, "Output route: ${if (isSpeakerOn) "Speaker" else "Earpiece"}")
         }
         try {
             audioTrack?.write(audioData, 0, audioData.size)
